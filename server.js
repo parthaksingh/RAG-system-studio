@@ -79,11 +79,72 @@ const PRESETS = {
   }
 };
 
+function buildSimulatorIntro(question) {
+  if (/steps/i.test(question)) return 'The main steps involve the following:';
+  if (/outcomes/i.test(question)) return 'The course outcomes are as follows:';
+  if (/features/i.test(question)) return 'The key features include:';
+  if (/types/i.test(question)) return 'The types identified are:';
+  if (/what are/i.test(question)) return 'Based on the document, the answer is:';
+  return 'Here is the relevant information from the document:';
+}
+
+// Formats retrieved evidence into a concise, cited answer. It deliberately
+// selects sentences/items instead of returning a complete retrieval chunk.
+function simulateAnswer(topChunks, question) {
+  const refusal = "I don't have enough information in the provided document to answer this question.";
+  if (!topChunks?.length) return refusal;
+
+  const q = question.toLowerCase().trim();
+  const best = topChunks[0];
+  const MIN_RELEVANCE_SCORE = 0.15;
+  if (best.score !== undefined && best.score < MIN_RELEVANCE_SCORE) return refusal;
+
+  const isListQuestion = /what are|list|steps|outcomes|features|types|enumerate|how many|give me|name the/i.test(q);
+  const isDefinitionQuestion = /what is|what does|define|explain|describe|tell me about|meaning of/i.test(q);
+  const isHowQuestion = /how (do|does|can|to|is)|process|procedure|method/i.test(q);
+  const isYesNoQuestion = /^(is|are|was|were|does|do|did|has|have|can|could|should|would)/i.test(q);
+  const allText = topChunks.map(chunk => String(chunk.text || chunk.content || '')).join(' ').replace(/\s+/g, ' ').trim();
+  const questionWords = q.replace(/[^a-z0-9\s]/g, '').split(/\s+/)
+    .filter(word => word.length > 3 && !['what', 'that', 'this', 'with', 'from', 'have', 'will', 'your', 'they', 'been', 'were', 'when', 'where'].includes(word));
+  const sentences = allText.split(/(?<=[.!?])\s+/)
+    .map(sentence => sentence.trim())
+    .filter(sentence => sentence.length > 20 && sentence.length < 300);
+  const topSentences = sentences
+    .map(sentence => ({
+      sentence,
+      score: questionWords.reduce((score, word) => score + (sentence.toLowerCase().includes(word) ? 2 : 0) + (sentence.toLowerCase().startsWith(word) ? 1 : 0), 0)
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, isListQuestion ? 6 : 3)
+    .map(result => result.sentence);
+  const hasPage = best.pageNumber || (best.page && !/^chunk\s/i.test(best.page));
+  const citation = hasPage
+    ? `Source: ${best.source || 'uploaded document'}, Page ${best.pageNumber || best.page}`
+    : `Source: ${best.source || 'uploaded document'}, Chunk ${best.chunkIndex || 1}`;
+
+  if (isListQuestion) {
+    const bulletItems = [...allText.matchAll(/[•*]\s*(.+?)(?=(?:[•*]\s*)|$)/g)]
+      .map(match => match[1].trim())
+      .filter(item => item.length > 5 && item.length < 300);
+    const numberedItems = [...allText.matchAll(/\d+[.)]\s*(.+?)(?=\d+[.)]\s*|$)/g)]
+      .map(match => match[1].trim())
+      .filter(item => item.length > 5 && item.length < 300);
+    const items = (bulletItems.length >= 2 ? bulletItems : numberedItems.length >= 2 ? numberedItems : topSentences)
+      .slice(0, 8);
+    if (!items.length) return refusal;
+    return `${buildSimulatorIntro(q)}\n\n${items.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\n${citation}`;
+  }
+
+  const answer = topSentences.slice(0, isYesNoQuestion ? 1 : 3).join(' ');
+  if (!answer || answer.length < 20) return refusal;
+  return `${answer}\n\n${citation}`;
+}
+
 function simulateResponse(mode, chunks, question) {
-  // NEW: Uploaded documents use a small, deterministic lexical retrieval pass so
-  // the no-key simulator stays grounded in their real extracted text.
+  // Uploaded documents use deterministic lexical matching before synthesis.
   const uploadedChunks = chunks.filter(chunk => chunk.fileType && (chunk.text || chunk.content));
   if (uploadedChunks.length) {
+    const refusal = "I don't have enough information in the provided document to answer this question.";
     const terms = question.toLowerCase().match(/[a-z0-9]{3,}/g) || [];
     const ignoredTerms = new Set(['what', 'when', 'where', 'which', 'with', 'from', 'that', 'this', 'have', 'does', 'about', 'would', 'could', 'should', 'document', 'context', 'provided']);
     const queryTerms = [...new Set(terms.filter(term => !ignoredTerms.has(term)))];
@@ -97,16 +158,14 @@ function simulateResponse(mode, chunks, question) {
       .slice(0, 3);
 
     if (!matches.length) {
-      return "I don't have enough information in the provided document/context to answer this.";
+      return refusal;
     }
 
-    return matches.map(({ chunk }) => {
-      const hasPage = chunk.pageNumber || (chunk.page && !/^chunk\s/i.test(chunk.page));
-      const location = hasPage
-        ? `Page ${chunk.pageNumber || chunk.page}`
-        : `Chunk ${chunk.chunkIndex || 1}`;
-      return `${String(chunk.text || chunk.content).trim()} (Source: ${chunk.source || 'uploaded document'}, ${location})`;
-    }).join('\n\n');
+    const scoredChunks = matches.map(({ chunk, score }) => ({
+      ...chunk,
+      score: score / Math.max(queryTerms.length, 1)
+    }));
+    return simulateAnswer(scoredChunks, question);
   }
 
   const combinedContext = chunks.map(c => c.content.toLowerCase()).join(' ');
