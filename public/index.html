@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Studio & Prompt Sandbox</title>
+  <meta name="description" content="Production-ready RAG Prompt Sandbox, Context Injector, and Anti-Hallucination Guardrails">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Document Extraction Libraries (PDF.js & Mammoth.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-badge">PROD RAG</div>
+        <h1>RAG System Prompt Studio</h1>
+      </div>
+      <!-- API key input removed from the visible header; simulator remains available. -->
+    </header>
+
+    <!-- Main Grid -->
+    <main class="main-grid">
+      <!-- Left Column: Controls & Context -->
+      <section class="panel control-panel">
+        <div class="panel-header">
+          <h2>1. Select RAG Architecture</h2>
+          <span class="badge" id="modeBadge">Universal Mode</span>
+        </div>
+
+        <!-- Mode Selector Tabs -->
+        <div class="mode-tabs">
+          <button class="tab-btn active" data-mode="universal" id="tabUniversal">
+            <span class="tab-icon">🌐</span>
+            <span class="tab-title">Universal RAG</span>
+            <span class="tab-desc">For general knowledge bases</span>
+          </button>
+          <button class="tab-btn" data-mode="documentQA" id="tabDocumentQA">
+            <span class="tab-icon">📄</span>
+            <span class="tab-title">Document / PDF</span>
+            <span class="tab-desc">Page & source citations</span>
+          </button>
+          <button class="tab-btn" data-mode="studyAssistant" id="tabStudyAssistant">
+            <span class="tab-icon">🎓</span>
+            <span class="tab-title">Study Assistant</span>
+            <span class="tab-desc">Step-by-step & quiz triggers</span>
+          </button>
+          <button class="tab-btn" data-mode="codebaseAssistant" id="tabCodebaseAssistant">
+            <span class="tab-icon">💻</span>
+            <span class="tab-title">Codebase Engineer</span>
+            <span class="tab-desc">File/line diffs & strict bounds</span>
+          </button>
+        </div>
+
+        <!-- Preset Quick Loader -->
+        <div class="preset-bar">
+          <span class="preset-label">⚡ Quick Presets:</span>
+          <button class="btn btn-preset" id="btnLoadPreset">Load Example Scenario</button>
+          <button class="btn btn-preset-ghost" id="btnClearChunks">Clear Chunks</button>
+        </div>
+
+        <!-- Context Chunks Builder -->
+        <div class="chunks-section">
+          <div class="section-title-row">
+            <h3>Retrieved Context Chunks</h3>
+            <div class="chunks-action-buttons">
+              <!-- Upload Document Button & Hidden File Input -->
+              <input type="file" id="fileUploadInput" accept=".pdf,.txt,.md,.docx" style="display: none;" />
+              <button class="btn btn-upload btn-sm" id="btnUploadDoc" title="Upload PDF, TXT, MD, or DOCX">
+                <span class="upload-btn-icon">📁</span>
+                <span id="uploadBtnText">Upload Document</span>
+              </button>
+              <button class="btn btn-secondary btn-sm" id="btnAddChunk">+ Add Chunk</button>
+            </div>
+          </div>
+
+          <!-- Upload Status Banner (Hidden by default) -->
+          <div id="uploadStatusBanner" class="upload-status-banner" style="display: none;"></div>
+
+          <div id="chunksList" class="chunks-list">
+            <!-- Dynamic Chunk Cards inserted here -->
+          </div>
+        </div>
+
+        <!-- User Query Input -->
+        <div class="query-section">
+          <div class="section-title-row">
+            <h3>User Question</h3>
+            <!-- NEW: Client-side follow-up memory control -->
+            <button class="btn btn-ghost btn-sm" id="btnClearConversation">Clear Conversation</button>
+          </div>
+          <!-- NEW: Previous exchanges are rendered safely by app.js -->
+          <div id="conversationHistory" class="conversation-history" hidden></div>
+          <textarea id="userQuestion" placeholder="Ask a question strictly based on the retrieved context above..."></textarea>
+          
+          <div class="query-action-row">
+            <button class="btn btn-primary btn-large" id="btnExecuteQuery">
+              <span class="btn-icon">⚡</span>
+              <span>Execute RAG Query</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Live Prompt & Response Output -->
+      <section class="panel output-panel">
+        <!-- Tab Bar for Output Panel -->
+        <div class="output-tab-bar">
+          <button class="out-tab active" id="tabAnsView">Generation & Citations</button>
+          <button class="out-tab" id="tabPromptView">Full System Prompt</button>
+          <button class="out-tab" id="tabApiCodeView">API Integration Code</button>
+          <!-- NEW: Query-quality metrics -->
+          <button class="out-tab" id="tabEvaluationView">Evaluation</button>
+        </div>
+
+        <!-- View 1: Answer Output -->
+        <div id="viewAnswer" class="output-view active">
+          <div class="panel-header">
+            <h3>Response & Hallucination Check</h3>
+            <span id="responseStatusBadge" class="badge badge-idle">Awaiting Query</span>
+          </div>
+
+          <div id="answerContainer" class="answer-box">
+            <div class="empty-placeholder">
+              <div class="placeholder-icon">💡</div>
+              <h4>No Query Executed Yet</h4>
+              <p>Click <strong>"Execute RAG Query"</strong> or <strong>"Load Example Scenario"</strong> to test the anti-hallucination guardrails and source citations.</p>
+            </div>
+          </div>
+
+          <div class="guardrail-metrics">
+            <div class="metric-card">
+              <span class="metric-title">Ground Truth Boundary</span>
+              <span class="metric-val text-green" id="metricBoundary">Strict (Zero Hallucination)</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-title">Source Citations</span>
+              <span class="metric-val" id="metricCitations">Enforced</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-title">Context Fallback</span>
+              <span class="metric-val" id="metricFallback">Explicit Refusal</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 2: Live Prompt Preview -->
+        <div id="viewPrompt" class="output-view">
+          <div class="panel-header">
+            <h3>Live Assembled System Prompt</h3>
+            <button class="btn btn-ghost btn-sm" id="btnCopyPrompt">📋 Copy Prompt</button>
+          </div>
+          <pre class="code-preview" id="promptCodePreview"><code>// Assembled prompt will appear here</code></pre>
+        </div>
+
+        <!-- View 3: API Integration Snippet -->
+        <div id="viewApiCode" class="output-view">
+          <div class="panel-header">
+            <h3>Node.js / Claude API Call</h3>
+            <button class="btn btn-ghost btn-sm" id="btnCopyApiCode">📋 Copy Code</button>
+          </div>
+          <pre class="code-preview" id="apiCodePreview"><code id="apiCodeContent"></code></pre>
+        </div>
+
+        <!-- NEW: Evaluation dashboard -->
+        <div id="viewEvaluation" class="output-view">
+          <div class="panel-header">
+            <h3>📊 RAG Evaluation Dashboard</h3>
+            <button class="btn btn-ghost btn-sm" id="btnExportEvaluation">Export Report</button>
+          </div>
+          <div id="evaluationMetrics" class="evaluation-metrics"></div>
+          <div class="evaluation-recent">
+            <h4>Recent Queries</h4>
+            <div id="evaluationHistory" class="evaluation-history"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Dependencies and local secrets must not be committed.
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Local OS/editor files
+.DS_Store
+.vscode/
