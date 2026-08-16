@@ -20,8 +20,6 @@ const btnLoadPreset = document.getElementById('btnLoadPreset');
 const btnClearChunks = document.getElementById('btnClearChunks');
 const userQuestionInput = document.getElementById('userQuestion');
 const btnExecuteQuery = document.getElementById('btnExecuteQuery');
-// API key entry is intentionally not shown in the UI; default to the simulator.
-const apiKeyInput = { value: '' };
 
 const tabAnsView = document.getElementById('tabAnsView');
 const tabPromptView = document.getElementById('tabPromptView');
@@ -165,7 +163,7 @@ tabButtons.forEach(btn => {
 
 // Update Live System Prompt Preview & API code
 async function updateLivePrompt() {
-  // NEW: Preview the same top-three retrieved chunks that will reach the RAG API.
+  // Preview the same retrieval result that will reach the RAG API.
   const retrieval = await getTopChunks(getChunks(), userQuestionInput.value.trim());
   const chunks = retrieval.chunks;
   try {
@@ -196,7 +194,7 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
     'anthropic-version': '2023-06-01',
   },
   body: JSON.stringify({
-    model: 'claude-3-7-sonnet-20250219',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: \`${systemPrompt.replace(/`/g, '\\`')}\`,
     messages: [
@@ -474,13 +472,12 @@ btnExecuteQuery.addEventListener('click', async () => {
   // Switch to answer view
   tabAnsView.click();
 
-  // NEW: Retrieve only the three most relevant chunks before the API call.
+  // Broad queries expand and diversify context; focused queries retain top three.
   const retrieval = await getTopChunks(getChunks(), question);
   const chunks = retrieval.chunks;
-  const apiKey = apiKeyInput.value.trim();
 
   responseStatusBadge.className = 'badge';
-  responseStatusBadge.textContent = apiKey ? 'Querying Claude API...' : 'Evaluating with Simulator...';
+  responseStatusBadge.textContent = 'Querying Claude API...';
   
   answerContainer.innerHTML = `
     <div style="display: flex; align-items: center; gap: 12px; color: var(--text-secondary); margin: auto;">
@@ -498,8 +495,7 @@ btnExecuteQuery.addEventListener('click', async () => {
         mode: currentMode,
         chunks,
         question,
-        apiKey,
-        // NEW: Last three exchanges support follow-up questions in live Claude mode.
+        // Last three exchanges support follow-up questions in Claude.
         conversationHistory: conversationHistory.slice(-6)
       })
     });
@@ -509,8 +505,8 @@ btnExecuteQuery.addEventListener('click', async () => {
       throw new Error(data.error || 'Query failed');
     }
 
-    responseStatusBadge.className = data.isLive ? 'badge badge-live' : 'badge badge-idle';
-    responseStatusBadge.textContent = data.isLive ? '⚡ Live Claude 3.7 Response' : '🤖 Simulator Response';
+    responseStatusBadge.className = 'badge badge-live';
+    responseStatusBadge.textContent = '⚡ Claude Response';
 
     const formattedAnswer = formatCitationsInHTML(data.answer);
     

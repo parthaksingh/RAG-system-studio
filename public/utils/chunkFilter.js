@@ -26,16 +26,53 @@ function keywordSearch(chunks, question, topN) {
   if (!chunks || chunks.length === 0) return { chunks: [], mode: 'keyword', relevance: null };
   if (chunks.length <= topN) return { chunks, mode: 'keyword', relevance: null };
 
-  return {
-    chunks: chunks
+  const broadQuery = isBroadQuery(question);
+  const effectiveTopN = broadQuery ? Math.max(topN, 12) : topN;
+  const scored = chunks
     .map(chunk => ({ ...chunk, score: scoreChunk(chunk, question) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topN)
+    .sort((a, b) => b.score - a.score);
+  return {
+    chunks: selectChunks(scored, effectiveTopN, broadQuery)
     // Score is retrieval-only metadata and is never sent as document context.
     .map(({ score, ...chunk }) => chunk),
-    mode: 'keyword',
+    mode: broadQuery ? 'keyword-broad' : 'keyword',
     relevance: null
   };
+}
+
+const BROAD_QUERY_PATTERN = /\b(main topics?|overview|summary|summari[sz]e|what does (?:this|the document) cover|syllabus|outline|key (?:themes?|points?)|broadly|in general)\b/i;
+
+// Focused fact questions deliberately stay on the existing small top-k path.
+function isBroadQuery(question) {
+  return BROAD_QUERY_PATTERN.test(question || '');
+}
+
+function clusterKey(chunk, index) {
+  const source = chunk.source || 'document';
+  const location = chunk.pageNumber ?? chunk.page ?? chunk.section ?? `chunk-${index}`;
+  return `${source}|${location}`;
+}
+
+// Broad answers need coverage, not several near-duplicate chunks from one page.
+function selectChunks(scoredChunks, limit, diversify) {
+  if (!diversify) return scoredChunks.slice(0, limit);
+
+  const selected = [];
+  const seenClusters = new Set();
+  scoredChunks.forEach((chunk, index) => {
+    const key = clusterKey(chunk, index);
+    if (!seenClusters.has(key) && selected.length < limit) {
+      seenClusters.add(key);
+      selected.push(chunk);
+    }
+  });
+  // If there are fewer pages/sections than the requested context size, retain
+  // the next-best chunks while keeping every original metadata field intact.
+  for (const chunk of scoredChunks) {
+    if (selected.length >= limit) break;
+    if (!selected.includes(chunk)) selected.push(chunk);
+  }
+  return selected;
 }
 
 // NEW: Semantic retrieval uses locally generated MiniLM embeddings when ready.
@@ -45,14 +82,16 @@ export async function getTopChunks(chunks, question, topN = 3) {
 
   try {
     const questionEmbedding = await embedText(question);
+    const broadQuery = isBroadQuery(question);
+    const effectiveTopN = broadQuery ? Math.max(topN, 12) : topN;
     const scored = chunks
       .map(chunk => ({ ...chunk, score: Array.isArray(chunk.embedding) ? cosineSimilarity(questionEmbedding, chunk.embedding) : 0 }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topN);
-    const semanticScores = scored.filter(chunk => Array.isArray(chunk.embedding)).map(chunk => chunk.score);
+      .sort((a, b) => b.score - a.score);
+    const selected = selectChunks(scored, effectiveTopN, broadQuery);
+    const semanticScores = selected.filter(chunk => Array.isArray(chunk.embedding)).map(chunk => chunk.score);
     return {
-      chunks: scored.map(({ score, ...chunk }) => chunk),
-      mode: 'semantic',
+      chunks: selected.map(({ score, ...chunk }) => chunk),
+      mode: broadQuery ? 'semantic-broad' : 'semantic',
       relevance: semanticScores.length ? semanticScores.reduce((sum, score) => sum + score, 0) / semanticScores.length : null
     };
   } catch (error) {
