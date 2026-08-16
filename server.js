@@ -187,18 +187,31 @@ const server = http.createServer(async (req, res) => {
 });
 
 function startServer(portToTry) {
-  server.listen(portToTry, () => {
+  // Do not pass a callback directly to listen(): if a port attempt fails, that
+  // callback stays attached and would incorrectly log on a later retry.
+  const onListening = () => {
+    cleanup();
     console.log(`\n🚀 RAG Studio Server running at http://localhost:${portToTry}`);
-  });
+  };
 
-  server.on('error', (err) => {
+  const onError = (err) => {
+    cleanup();
     if (err.code === 'EADDRINUSE') {
       console.warn(`⚠️ Port ${portToTry} is in use. Trying port ${portToTry + 1}...`);
       startServer(portToTry + 1);
     } else {
       console.error('Server error:', err);
     }
-  });
+  };
+
+  const cleanup = () => {
+    server.off('listening', onListening);
+    server.off('error', onError);
+  };
+
+  server.once('listening', onListening);
+  server.once('error', onError);
+  server.listen(portToTry);
 }
 
 startServer(PORT);
