@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { buildSystemPrompt, formatChunks } from './prompts.js';

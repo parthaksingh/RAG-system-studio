@@ -16,12 +16,38 @@ Production-ready Retrieval-Augmented Generation (RAG) system prompts, dynamic pr
 
 ## 🚀 Quick Start
 
-### 1. Run the Demo
+### 1. Configure Claude
+
+Copy `.env.example` to `.env` and set your real key locally. `.env` is already
+git-ignored and must never be committed or sent to browser code.
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```dotenv
+ANTHROPIC_API_KEY=your_real_anthropic_api_key
+```
+
+For a deployed app, set `ANTHROPIC_API_KEY` in the hosting provider's environment-variable/secret settings instead. The server checks for it at startup and prints a descriptive error if it is absent.
+
+### 2. Install and run
+
+```bash
+npm install
+npm start
+```
+
+The browser sends queries only to `/api/query`; `server.js` makes the private request to Anthropic.
+
+### 3. Run the Demo
 ```bash
 node src/demo.js
 ```
 
-### 2. Basic Code Usage
+### 4. Basic Code Usage
 
 ```javascript
 import { buildSystemPrompt, queryRAG } from './src/index.js';

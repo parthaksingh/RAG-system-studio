@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -9,6 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Fail fast so a missing secret is caught at launch, not after a user submits a
+// question. Never log the key itself.
+if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+  console.error(
+    'Configuration error: ANTHROPIC_API_KEY is missing. Add it to .env locally ' +
+      '(see .env.example) or configure it in your hosting provider environment variables.'
+  );
+  process.exit(1);
+}
 
 // MIME types for static assets
 const MIME_TYPES = {

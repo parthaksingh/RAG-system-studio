@@ -181,33 +181,24 @@ async function updateLivePrompt() {
   }
 }
 
-function updateApiCodeSnippet(systemPrompt) {
+function updateApiCodeSnippet() {
   const question = userQuestionInput.value || 'Your query here';
-  const snippet = `// Anthropic Claude Messages API Call
-import { queryRAG } from './src/index.js';
-
-const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const snippet = `// Browser call: your server owns ANTHROPIC_API_KEY.
+// Never call Anthropic directly from frontend JavaScript.
+const response = await fetch('/api/query', {
   method: 'POST',
   headers: {
-    'Content-Type': 'application/json',
-    'x-api-key': process.env.ANTHROPIC_API_KEY,
-    'anthropic-version': '2023-06-01',
+    'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: \`${systemPrompt.replace(/`/g, '\\`')}\`,
-    messages: [
-      {
-        role: 'user',
-        content: ${JSON.stringify(question)}
-      }
-    ]
+    mode: '${currentMode}',
+    chunks: [/* retrieved context chunks */],
+    question: ${JSON.stringify(question)}
   })
 });
 
 const data = await response.json();
-console.log(data.content[0].text);`;
+console.log(data.answer);`;
 
   apiCodeContent.textContent = snippet;
 }
