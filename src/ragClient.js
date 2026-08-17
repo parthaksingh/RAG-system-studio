@@ -4,6 +4,25 @@
 
 import { buildSystemPrompt } from './prompts.js';
 
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+function getApiError(status, responseBody) {
+  let message = '';
+  try {
+    message = JSON.parse(responseBody)?.error?.message || '';
+  } catch {
+    message = responseBody;
+  }
+
+  if (status === 401) {
+    return 'Anthropic rejected ANTHROPIC_API_KEY. Add a valid Anthropic API key (starting with "sk-ant-") to .env, then restart the server.';
+  }
+  if (status === 429) {
+    return 'Anthropic rate limit or account quota was reached. Check your Anthropic account usage and try again.';
+  }
+  return `Anthropic API Error (${status})${message ? `: ${message}` : ''}`;
+}
+
 /**
  * Sends a RAG question to Anthropic's Claude Messages API
  * 
@@ -12,7 +31,7 @@ import { buildSystemPrompt } from './prompts.js';
  * @param {Array<object>|string} options.retrievedChunks - Retrieved chunks or raw context string
  * @param {'universal'|'documentQA'|'studyAssistant'|'codebaseAssistant'} [options.promptType='universal'] - Prompt template type
  * @param {string} [options.apiKey] - Anthropic API key (defaults to process.env.ANTHROPIC_API_KEY)
- * @param {string} [options.model='claude-sonnet-4-6'] - Anthropic model name
+ * @param {string} [options.model] - Anthropic model name (defaults to ANTHROPIC_MODEL or Claude Sonnet)
  * @param {number} [options.maxTokens=1024] - Max generation tokens
  * @param {boolean} [options.injectContextInUserMessage=false] - Whether to inject chunks into the user message instead of system prompt
  * @param {Array<{role: 'user'|'assistant', content: string}>} [options.conversationHistory=[]] - Prior exchanges
@@ -23,13 +42,16 @@ export async function queryRAG({
   retrievedChunks,
   promptType = 'universal',
   apiKey = process.env.ANTHROPIC_API_KEY,
-  model = 'claude-sonnet-4-6',
+  model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
   maxTokens = 1024,
   injectContextInUserMessage = false,
   conversationHistory = [],
 }) {
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is required to make Claude API requests.');
+  if (!apiKey?.trim()) {
+    throw new Error('ANTHROPIC_API_KEY is required. Add a valid Anthropic key to .env and restart the server.');
+  }
+  if (!apiKey.startsWith('sk-ant-')) {
+    throw new Error('ANTHROPIC_API_KEY does not look like an Anthropic key. Use an Anthropic key starting with "sk-ant-", not a key from another provider.');
   }
 
   const groundingInstruction = 'Only answer using the provided context. If the answer is not present in the context, explicitly refuse and state the information is not available in the document.';
@@ -78,7 +100,7 @@ export async function queryRAG({
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Anthropic API Error (${response.status}): ${errorText}`);
+    throw new Error(getApiError(response.status, errorText));
   }
 
   const data = await response.json();

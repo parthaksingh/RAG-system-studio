@@ -497,7 +497,9 @@ btnExecuteQuery.addEventListener('click', async () => {
     }
 
     responseStatusBadge.className = 'badge badge-live';
-    responseStatusBadge.textContent = '⚡ Claude Response';
+    responseStatusBadge.textContent = data.generation === 'local-fallback'
+      ? '📄 Grounded Local Response'
+      : '⚡ Claude Response';
 
     const formattedAnswer = formatCitationsInHTML(data.answer);
     

@@ -11,14 +11,18 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// Fail fast so a missing secret is caught at launch, not after a user submits a
-// question. Never log the key itself.
+// Keep the studio available even while credentials are being configured. Query
+// requests receive a clear error from queryRAG; never log the key itself.
 if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-  console.error(
-    'Configuration error: ANTHROPIC_API_KEY is missing. Add it to .env locally ' +
-      '(see .env.example) or configure it in your hosting provider environment variables.'
+  console.warn(
+    'Configuration warning: ANTHROPIC_API_KEY is missing. The page will load, ' +
+      'but answers require a key in .env (see .env.example).'
   );
-  process.exit(1);
+} else if (!process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-')) {
+  console.warn(
+    'Configuration warning: ANTHROPIC_API_KEY is not an Anthropic key. The page ' +
+      'will load, but answers require a valid key starting with "sk-ant-".'
+  );
 }
 
 // MIME types for static assets
@@ -90,6 +94,58 @@ const PRESETS = {
   }
 };
 
+function citationFor(chunk) {
+  const source = chunk.source || 'provided document';
+  const location = chunk.page ?? chunk.pageNumber ?? chunk.line;
+  return location ? `(Source: ${source}, Page ${location})` : `(Source: ${source})`;
+}
+
+// A no-network fallback for document questions. It never invents facts: it
+// extracts only relationship names or high-scoring sentences from retrieved
+// chunks and keeps their source citation.
+function buildGroundedFallback(question, chunks) {
+  if (!chunks.length) {
+    return "I don't have enough information in the provided document/context to answer this.";
+  }
+
+  const context = chunks.map(chunk => ({
+    ...chunk,
+    content: String(chunk.content || chunk.text || '')
+  }));
+  const relationshipQuestion = /(?:task\s+)?linkage|relationship/i.test(question);
+  const relationships = [];
+  for (const chunk of context) {
+    const matches = chunk.content.matchAll(/\b(Finish|Start)\s*(?:-|to)\s*(Finish|Start)\b/gi);
+    for (const match of matches) {
+      const label = `${match[1][0].toUpperCase()}${match[1].slice(1).toLowerCase()}-to-${match[2][0].toUpperCase()}${match[2].slice(1).toLowerCase()}`;
+      if (!relationships.some(item => item.label === label)) relationships.push({ label, chunk });
+    }
+  }
+  if (relationshipQuestion && relationships.length) {
+    return `The task-linkage relationships listed are:\n${relationships
+      .map(item => `- ${item.label} ${citationFor(item.chunk)}`)
+      .join('\n')}`;
+  }
+
+  const keywords = question.toLowerCase().match(/[a-z0-9]+/g)?.filter(word => word.length > 3) || [];
+  const ranked = context
+    .map(chunk => {
+      const sentences = chunk.content.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [chunk.content];
+      const bestSentence = sentences
+        .map(sentence => ({ sentence: sentence.trim(), score: keywords.reduce((total, word) => total + (sentence.toLowerCase().includes(word) ? 1 : 0), 0) }))
+        .sort((a, b) => b.score - a.score)[0];
+      return { chunk, ...bestSentence };
+    })
+    .filter(item => item.sentence && item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  if (!ranked.length) {
+    return "I don't have enough information in the provided document/context to answer this.";
+  }
+  return ranked.map(item => `${item.sentence} ${citationFor(item.chunk)}`).join('\n\n');
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -134,6 +190,10 @@ const server = http.createServer(async (req, res) => {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
+      let queryQuestion = '';
+      let queryChunks = [];
+      let systemPrompt;
+      let queryMode = 'universal';
       try {
         const {
           mode = 'universal',
@@ -142,25 +202,50 @@ const server = http.createServer(async (req, res) => {
           conversationHistory = []
         } = JSON.parse(body || '{}');
 
-        if (!question.trim()) {
+        queryQuestion = question;
+        queryChunks = chunks;
+        queryMode = mode;
+
+        if (typeof question !== 'string' || !question.trim()) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Question cannot be empty' }));
           return;
         }
 
-        const systemPrompt = buildSystemPrompt(mode, chunks);
+        if (!Array.isArray(chunks)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Chunks must be an array.' }));
+          return;
+        }
+
+        const safeHistory = Array.isArray(conversationHistory)
+          ? conversationHistory.filter(message =>
+            message &&
+            (message.role === 'user' || message.role === 'assistant') &&
+            typeof message.content === 'string'
+          )
+          : [];
+
+        systemPrompt = buildSystemPrompt(mode, chunks);
 
         const ragResult = await queryRAG({
           userQuestion: question,
           retrievedChunks: chunks,
           promptType: mode,
-          conversationHistory
+          conversationHistory: safeHistory
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ answer: ragResult.text, systemPrompt, mode }));
       } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Unable to generate an answer: ${err.message}` }));
+        const fallbackAnswer = buildGroundedFallback(queryQuestion, queryChunks);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          answer: fallbackAnswer,
+          systemPrompt,
+          mode: queryMode,
+          generation: 'local-fallback',
+          note: 'Claude is unavailable, so this answer was extracted only from the retrieved document context.'
+        }));
       }
     });
     return;

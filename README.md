@@ -29,6 +29,8 @@ Then edit `.env`:
 
 ```dotenv
 ANTHROPIC_API_KEY=your_real_anthropic_api_key
+# Optional: override this if your account uses a different Claude model.
+ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 For a deployed app, set `ANTHROPIC_API_KEY` in the hosting provider's environment-variable/secret settings instead. The server checks for it at startup and prints a descriptive error if it is absent.
