@@ -22,8 +22,6 @@ const userQuestionInput = document.getElementById('userQuestion');
 const btnExecuteQuery = document.getElementById('btnExecuteQuery');
 
 const tabAnsView = document.getElementById('tabAnsView');
-const tabPromptView = document.getElementById('tabPromptView');
-const tabApiCodeView = document.getElementById('tabApiCodeView');
 const viewAnswer = document.getElementById('viewAnswer');
 const viewPrompt = document.getElementById('viewPrompt');
 const viewApiCode = document.getElementById('viewApiCode');
@@ -412,13 +410,11 @@ btnExportEvaluation.addEventListener('click', () => {
 // View Tabs
 [
   { tab: tabAnsView, view: viewAnswer },
-  { tab: tabPromptView, view: viewPrompt },
-  { tab: tabApiCodeView, view: viewApiCode },
   { tab: tabEvaluationView, view: viewEvaluation }
 ].forEach(({ tab, view }) => {
   tab.addEventListener('click', () => {
-    [tabAnsView, tabPromptView, tabApiCodeView, tabEvaluationView].forEach(t => t.classList.remove('active'));
-    [viewAnswer, viewPrompt, viewApiCode, viewEvaluation].forEach(v => v.classList.remove('active'));
+    [tabAnsView, tabEvaluationView].forEach(t => t.classList.remove('active'));
+    [viewAnswer, viewEvaluation].forEach(v => v.classList.remove('active'));
     tab.classList.add('active');
     view.classList.add('active');
   });
